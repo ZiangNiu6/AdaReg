@@ -107,6 +107,10 @@ UA_test <- function(data){
   IPW_sq <- weighted_IPW(data_to_analyze)
   variance_Y <- c(IPW_sq["point", 1] - IPW_pt["point", 1]^2,
                   IPW_sq["point", 2] - IPW_pt["point", 2]^2)
+  
+  # impute the negative variance by an upper bound
+  idx_negative <- which(variance_Y <= 0)
+  variance_Y[idx_negative] <- IPW_sq["point", idx_negative]
 
   # if the estimated variance is negative, output the NA p-values
   if(any(variance_Y <= 0)){
@@ -159,6 +163,10 @@ NA_test <- function(data){
   IPW_sq <- weighted_IPW(data_to_analyze)
   variance_Y <- c(IPW_sq["point", 1] - IPW_pt["point", 1]^2,
                   IPW_sq["point", 2] - IPW_pt["point", 2]^2)
+  
+  # impute the negative variance by an upper bound
+  idx_negative <- which(variance_Y <= 0)
+  variance_Y[idx_negative] <- IPW_sq["point", idx_negative]
 
   # if the estimated variance is negative, output the NA p-values
   if(any(variance_Y <= 0)){
@@ -210,6 +218,10 @@ UC_test <- function(data){
   IPW_sq <- weighted_IPW(data_to_analyze)
   variance_Y <- c(IPW_sq["point", 1] - IPW_pt["point", 1]^2,
                   IPW_sq["point", 2] - IPW_pt["point", 2]^2)
+  
+  # impute the negative variance by an upper bound
+  idx_negative <- which(variance_Y <= 0)
+  variance_Y[idx_negative] <- IPW_sq["point", idx_negative]
 
   # compute the bootstrap sample for unnormalized test statistic
   eps <- data$eps
@@ -253,6 +265,10 @@ NC_test <- function(data){
   IPW_sq <- weighted_IPW(data_to_analyze)
   variance_Y <- c(IPW_sq["point", 1] - IPW_pt["point", 1]^2,
                   IPW_sq["point", 2] - IPW_pt["point", 2]^2)
+  
+  # impute the negative variance by an upper bound
+  idx_negative <- which(variance_Y <= 0)
+  variance_Y[idx_negative] <- IPW_sq["point", idx_negative]
 
   # compute the bootstrap sample
   eps <- data$eps
