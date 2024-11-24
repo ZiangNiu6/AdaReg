@@ -26,9 +26,14 @@ sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NUL
     eps_greedy = {
       # hard threshold
       # compute the random probability given the reward
+      max_id <- rbinom(1, 1, 0.5) + 1
       prob_estimate <- sapply(1:num_arm,
                               function(x){
-                                dplyr::if_else(reward[x] == max(reward), 1, 0)*(1-eps) + eps / num_arm
+                                if(all(reward == max(reward))){
+                                  return(dplyr::if_else(x == max_id, 1, 0)*(1-eps) + eps / num_arm)
+                                }else{
+                                  dplyr::if_else(reward[x] == max(reward), 1, 0)*(1-eps) + eps / num_arm
+                                }
                               })
 
       # decide the index of random sample
@@ -36,7 +41,9 @@ sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NUL
       num_random_sample <- sum(random_coin)
       sample_id[which(random_coin == 1)] <- sapply(1:num_random_sample,
                                                    function(x) sample(1:num_arm, 1))
-      sample_id[which(random_coin == 0)] <- min(which(reward == max(reward)))
+      sample_id[which(random_coin == 0)] <- dplyr::if_else(all(reward == max(reward)), 
+                                                           max_id, 
+                                                           min(which(reward == max(reward))))
     },
     thompson = {
 
