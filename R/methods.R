@@ -131,8 +131,8 @@ UA_test <- function(data){
 
   # compute p-value
   n <- length(data_to_analyze$arm)
-  p_value_left <- (length(which((sqrt(n) * point_estimate) <= candidate_sample)) + 1) / (length(candidate_sample) + 1)
-  p_value_right <- (length(which((sqrt(n) * point_estimate) >= candidate_sample)) + 1) / (length(candidate_sample) + 1)
+  p_value_left <- (length(which(candidate_sample <= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_right <- (length(which(candidate_sample >= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_both <- 2 * min(p_value_left, p_value_right)
 
   # output
@@ -186,8 +186,8 @@ NA_test <- function(data){
                                        weighting = "aw")
 
   # compute p-value
-  p_value_left <- (length(which((point_estimate / sd_estimate) <= candidate_sample)) + 1) / (length(candidate_sample) + 1)
-  p_value_right <- (length(which((point_estimate / sd_estimate) >= candidate_sample)) + 1) / (length(candidate_sample) + 1)
+  p_value_left <- (length(which(candidate_sample <= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_right <- (length(which(candidate_sample >= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_both <- 2 * min(p_value_left, p_value_right)
 
   # output
@@ -233,8 +233,8 @@ UC_test <- function(data){
 
   # compute unnormalized ci interval
   n <- length(data_to_analyze$arm)
-  p_value_left <- (length(which((sqrt(n) * point_estimate) <= candidate_sample)) + 1) / (length(candidate_sample) + 1)
-  p_value_right <- (length(which((sqrt(n) * point_estimate) >= candidate_sample)) + 1) / (length(candidate_sample) + 1)
+  p_value_left <- (length(which(candidate_sample <= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_right <- (length(which(candidate_sample >= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_both <- 2 * min(p_value_left, p_value_right)
 
   # output
@@ -279,8 +279,8 @@ NC_test <- function(data){
                                        weighting = "cw")
 
   # compute two types of confidence interval
-  p_value_left <- (length(which((point_estimate / sd_estimate) <= candidate_sample)) + 1) / (length(candidate_sample) + 1)
-  p_value_right <- (length(which((point_estimate / sd_estimate) >= candidate_sample)) + 1) / (length(candidate_sample) + 1)
+  p_value_left <- (length(which(candidate_sample <= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_right <- (length(which(candidate_sample >= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_both <- 2 * min(p_value_left, p_value_right)
 
   # output
