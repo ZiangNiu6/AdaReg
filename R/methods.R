@@ -127,7 +127,7 @@ UA_test <- function(data){
   candidate_sample <- plugin_bootstrap(mean_estimate = IPW_pt["point", ],
                                        variance_estimate = variance_Y,
                                        eps = eps, fs_p = initial_prob[1], normalization = "unnormalized",
-                                       weighting = "aw")
+                                       weighting = "aw", type = data$type, B = 5000)
 
   # compute p-value
   n <- length(data_to_analyze$arm)
@@ -183,7 +183,7 @@ NA_test <- function(data){
   candidate_sample <- plugin_bootstrap(mean_estimate = IPW_pt["point", ],
                                        variance_estimate = variance_Y,
                                        eps = eps, fs_p = initial_prob[1], normalization = "normalized",
-                                       weighting = "aw")
+                                       weighting = "aw", type = data$type, B = 5000)
 
   # compute p-value
   p_value_left <- (length(which(candidate_sample <= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
@@ -229,7 +229,7 @@ UC_test <- function(data){
   candidate_sample <- plugin_bootstrap(mean_estimate = IPW_pt["point", ],
                                        variance_estimate = variance_Y,
                                        eps = eps, fs_p = initial_prob[1], normalization = "unnormalized",
-                                       weighting = "cw")
+                                       weighting = "cw", type = data$type, B = 5000)
 
   # compute unnormalized ci interval
   n <- length(data_to_analyze$arm)
@@ -276,7 +276,7 @@ NC_test <- function(data){
   candidate_sample <- plugin_bootstrap(mean_estimate = IPW_pt["point", ],
                                        variance_estimate = variance_Y,
                                        eps = eps, fs_p = initial_prob[1], normalization = "normalized",
-                                       weighting = "cw")
+                                       weighting = "cw", type = data$type, B = 5000)
 
   # compute two types of confidence interval
   p_value_left <- (length(which(candidate_sample <= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
