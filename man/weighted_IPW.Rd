@@ -4,10 +4,12 @@
 \alias{weighted_IPW}
 \title{Tnis is a function building up the point and variance estimates wight weighting strategy}
 \usage{
-weighted_IPW(data)
+weighted_IPW(data, weighting = "aw")
 }
 \arguments{
 \item{data}{Same as AIPW function}
+
+\item{weighting}{Weighting method including aw, dm}
 }
 \value{
 An output matrix with point and variance estimate for each arm

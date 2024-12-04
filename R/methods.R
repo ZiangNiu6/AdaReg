@@ -290,3 +290,59 @@ NC_test <- function(data){
     both = p_value_both
   ))
 }
+
+
+#' Test with unnormalized difference-in-means test statistic
+#'
+#' @param data Data to be analyzed
+#'
+#' @return left, right and both sided tests
+#' @export
+
+UDM_test <- function(data){
+  
+  # compute the weighted test statistic
+  data_to_analyze <- data$data_to_analyze
+  IPW_pt <- weighted_IPW(data_to_analyze, weighting = "dm")
+  point_estimate <- IPW_pt["point", 1] - IPW_pt["point", 2]
+  
+  # compute the variance and second moments of potential outcomes
+  data_to_analyze$reward <- data_to_analyze$reward^2
+  IPW_sq <- weighted_IPW(data_to_analyze, weighting = "dm")
+  variance_Y <- c(IPW_sq["point", 1] - IPW_pt["point", 1]^2,
+                  IPW_sq["point", 2] - IPW_pt["point", 2]^2)
+  
+  # impute the negative variance by an upper bound
+  idx_negative <- which(variance_Y <= 0)
+  variance_Y[idx_negative] <- IPW_sq["point", idx_negative]
+  
+  # if the estimated variance is negative, output the NA p-values
+  if(any(variance_Y <= 0)){
+    return(list(
+      left = NA,
+      right = NA,
+      both = NA
+    ))
+  }
+  
+  # compute the bootstrap sample
+  eps <- data$eps
+  initial_prob <- data$initial_prob
+  candidate_sample <- plugin_bootstrap(mean_estimate = IPW_pt["point", ],
+                                       variance_estimate = variance_Y,
+                                       eps = eps, fs_p = initial_prob[1], normalization = "unnormalized",
+                                       weighting = "dm", type = data$type, B = 5000)
+  
+  # compute p-value
+  n <- length(data_to_analyze$arm)
+  p_value_left <- (length(which(candidate_sample <= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_right <- (length(which(candidate_sample >= (sqrt(n) * point_estimate))) + 1) / (length(candidate_sample) + 1)
+  p_value_both <- 2 * min(p_value_left, p_value_right)
+  
+  # output
+  return(list(
+    left = p_value_left,
+    right = p_value_right,
+    both = p_value_both
+  ))
+}

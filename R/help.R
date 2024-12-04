@@ -502,6 +502,7 @@ limiting_sampling_function <- function(A_1, V_1, h, H_1, eps, type = "eps_greedy
 #' @return A vector of bootstrap sample of length B
 #' @export
 #' @importFrom katlabutils fast_generate_mvn
+#' @importFrom dplyr case_when
 
 plugin_bootstrap <- function(mean_estimate,
                              variance_estimate, eps,
@@ -548,7 +549,11 @@ plugin_bootstrap <- function(mean_estimate,
                              num_samples = 1)
 
     # extract which weighing method is used
-    m <- if_else(weighting == "aw", 0.5, 0)
+    m <- case_when(
+      weighting == "aw" ~ 0.5,
+      weighting == "cw" ~ 0,
+      TRUE ~ 1
+    )
 
     # compute core statistics
     R_1 <- sqrt(H_1 / V_1)
@@ -971,10 +976,11 @@ weighted_AIPW <- function(data, hyperparams, reg_type = "lasso"){
 #' Tnis is a function building up the point and variance estimates wight weighting strategy
 #'
 #' @param data Same as AIPW function
+#' @param weighting Weighting method including aw, dm
 #'
 #' @return An output matrix with point and variance estimate for each arm
 #' @export
-weighted_IPW <- function(data) {
+weighted_IPW <- function(data, weighting = "aw") {
   # Extract the reward, arm, sampling probability, and batch id
   Y <- data$reward
   A <- data$arm
@@ -1000,7 +1006,11 @@ weighted_IPW <- function(data) {
   }
 
   # Constant allocation
-  weight_constant <- sqrt(sampling_prob_mat / length(batch_id))
+  if(weighting == "aw"){
+    weight_constant <- sqrt(sampling_prob_mat / length(batch_id))
+  }else{
+    weight_constant <- sampling_prob_mat / length(batch_id)
+  }
 
   # Compute the sum of weights
   sum_weight <- colSums(weight_constant)
