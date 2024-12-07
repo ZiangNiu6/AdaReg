@@ -10,7 +10,7 @@
 #' @param type sampling algorithm
 #'
 #' @return the random sampled and random index with length n
-#' @importFrom stats rnorm rbinom pnorm
+#' @importFrom stats rnorm rbinom pnorm rt rpois
 #' @export
 sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NULL, data_generation = TRUE,
                               sample_size = NULL, type = "eps_greedy"){
@@ -71,11 +71,7 @@ sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NUL
     if(is.null(dist_fam) | is.null(dist_params)){
       stop("Distribution family and parameters should be specified given the data generation is required!")
     }
-
-    # check if the length of dist_fam is the same as reward vector or not
-    if(num_arm != nrow(dist_params)){
-      stop("The number of distinct arms given is not the same as that of the distribution list!")
-    }
+    
     # sample according to dist_fam
     switch (dist_fam,
             gaussian = {
@@ -89,6 +85,33 @@ sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NUL
                                                         mean = mu[x],
                                                         sd = sigma[x]))
             },
+            Student = {
+              if(ncol(dist_params) != 2){
+                stop("Both mean and df should be provided to sample!")
+              }
+              mu <- dist_params[, 1]
+              df <- dist_params[, 2]
+              random_sample <- sapply(sample_id,
+                                      function(x) {rt(n = 1, df = df[x]) + mu[x]})
+            },
+            mix_normal = {
+              if(length(dist_params) != 3){
+                stop("All mean, sd and mixture prob should be provided to sample!")
+              }
+              # extract distribution information
+              mu <- dist_params$mu
+              sigma <- dist_params$sd
+              weights <- dist_params$prob
+              
+              # generate second stage outcome
+              random_sample <- sapply(sample_id,
+                                      function(x) {
+                                        rmvnormmix(n = 1, 
+                                                   lambda = weights[, x], 
+                                                   mu = mu[, x], 
+                                                   sigma = sigma[, x])
+                                      })
+            },
             Bernoulli = {
               if(ncol(dist_params) != 1){
                 stop("Mean should be provided to sample!")
@@ -97,6 +120,14 @@ sampling_function <- function(eps, reward, n, dist_fam = NULL, dist_params = NUL
               random_sample <- sapply(sample_id,
                                       function(x) rbinom(n = 1, size = 1,
                                                          prob = mu[x]))
+            },
+            Poisson = {
+              if(ncol(dist_params) != 1){
+                stop("Lambda should be provided to sample!")
+              }
+              lambda <- dist_params[, 1]
+              random_sample <- sapply(sample_id,
+                                      function(x) rpois(n = 1, lambda = lambda[x]))
             }
     )
     return(list(
@@ -280,6 +311,7 @@ covariance_estimate <- function(conditional_mean, mean_estimate){
 #'
 #' @return Data list containing reward, arm, covariate and batch ids
 #' @importFrom stats rnorm rmultinom
+#' @importFrom mixtools rmvnormmix
 #' @import dplyr
 #' @export
 data_generate_online <- function(eps, dist_fam, n_1, n_2, p, coef_list = NULL,
@@ -315,111 +347,115 @@ data_generate_online <- function(eps, dist_fam, n_1, n_2, p, coef_list = NULL,
                                    })) + exp(X[, 1])
     }
   }
+  
+  # assign treatment in the first stage
+  A[batch_1] <- apply(rmultinom(n_1, 1, initial_prob), 2, function(x) which(x != 0))
+  
+  # swith among different distributions
   switch (dist_fam,
     gaussian = {
+      
+      # extract distribution information
       mu <- dist_params[, 1]
       sigma <- dist_params[, 2]
-
+      
       # first batch
-      A[batch_1] <- apply(rmultinom(n_1, 1, initial_prob), 2, function(x) which(x != 0))
       Y[batch_1] <- sapply(batch_1, function(x){
         rnorm(n = 1,
               mean = mu[A[x]] + linear_pred[x, A[x]],
               sd = sigma[A[x]])
       })
+    },
+    mix_normal = {
+      
+      # extract distribution information
+      mu <- dist_params$mu
+      sigma <- dist_params$sd
+      weights <- dist_params$prob
+      
+      # first batch
+      Y[batch_1] <- sapply(batch_1, function(x){
+        rmvnormmix(n = 1, 
+                   lambda = weights[, A[x]], 
+                   mu = mu[, A[x]] + linear_pred[x, A[x]], 
+                   sigma = sigma[, A[x]])
+      })
 
-      batch_1_estimate <- switch (deciding_scheme,
-                                  IPW = {
-                                    # compute the IPW estimate
-                                    IPW(
-                                      data = list(
-                                        reward = Y[batch_1],
-                                        arm = A[batch_1],
-                                        sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
-                                        batch_id = rep(1, length(batch_1))
-                                      ))["point", ]
-                                  },
-                                  AIPW = {
-                                    if(all(c(is.null(reg_type), is.null(hyperparams)))){
-                                      stop("Both reg_type and hyperparams should be specified when AIPW is considered!")
-                                    }
-                                    # compute the IPW estimate
-                                    AIPW(
-                                      data = list(
-                                        reward = Y[batch_1],
-                                        arm = A[batch_1],
-                                        covariate = X[batch_1, ],
-                                        sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
-                                        batch_id = rep(1, length(batch_1))
-                                      ), hyperparams = hyperparams, reg_type = reg_type)
-                                  }
-                                  )
-
-      # pass the result to sampling algorithm and get an estimate for the sampling probability
-      second_stage_data <- sampling_function(eps = eps, reward = batch_1_estimate,
-                                             n = n_2, dist_fam = dist_fam,
-                                             sample_size = n_1,
-                                             dist_params = dist_params, type = type)
-      prob_estimate <- second_stage_data$prob_estimate
-
-      # second batch
-      A[batch_2] <- second_stage_data$random_index
-      Y[batch_2] <- second_stage_data$random_sample + sapply(batch_2,
-                                                                 function(x){
-                                                                   linear_pred[x, A[x]]
-                                                                 })
+    },
+    Student = {
+      
+      # extract distribution information
+      mu <- dist_params[, 1]
+      df <- dist_params[, 2]
+      
+      # first batch
+      Y[batch_1] <- sapply(batch_1, function(x){
+        rt(n = 1, df = df[A[x]]) + mu[A[x]] + linear_pred[x, A[x]]
+      })
     },
     Bernoulli = {
+      
+      # extract distribution information
       mu <- dist_params[, 1]
 
       # first batch
-      A[batch_1] <- apply(rmultinom(n_1, 1, initial_prob), 2, function(x) which(x != 0))
       Y[batch_1] <- sapply(batch_1, function(x){
         rbinom(n = 1, size = 1, prob = mu[A[x]])
       })
-
-      batch_1_estimate <- switch (deciding_scheme,
-                                  IPW = {
-                                    # compute the IPW estimate
-                                    IPW(
-                                      data = list(
-                                        reward = Y[batch_1],
-                                        arm = A[batch_1],
-                                        sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
-                                        batch_id = rep(1, length(batch_1))
-                                      ))["point", ]
-                                  },
-                                  AIPW = {
-                                    if(all(c(is.null(reg_type), is.null(hyperparams)))){
-                                      stop("Both reg_type and hyperparams should be specified when AIPW is considered!")
-                                    }
-                                    # compute the IPW estimate
-                                    AIPW(
-                                      data = list(
-                                        reward = Y[batch_1],
-                                        arm = A[batch_1],
-                                        covariate = X[batch_1, ],
-                                        sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
-                                        batch_id = rep(1, length(batch_1))
-                                      ), hyperparams = hyperparams, reg_type = reg_type)
-                                  }
-      )
-
-      # pass the result to sampling algorithm and get an estimate for the sampling probability
-      second_stage_data <- sampling_function(eps = eps, reward = batch_1_estimate,
-                                             n = n_2, dist_fam = dist_fam,
-                                             sample_size = n_1,
-                                             dist_params = dist_params, type = type)
-      prob_estimate <- second_stage_data$prob_estimate
-
-      # second batch
-      A[batch_2] <- second_stage_data$random_index
-      Y[batch_2] <- second_stage_data$random_sample + sapply(batch_2,
-                                                             function(x){
-                                                               linear_pred[x, A[x]]
-                                                             })
+    },
+    Poisson = {
+      
+      # extract distribution information
+      lambda <- dist_params[, 1]
+      
+      # first batch
+      Y[batch_1] <- sapply(batch_1, function(x){
+        rpois(n = 1, lambda = lambda[A[x]])
+      })
     }
   )
+  
+  # compute the selection rule using data from first stage
+  batch_1_estimate <- switch (deciding_scheme,
+                              IPW = {
+                                # compute the IPW estimate
+                                IPW(
+                                  data = list(
+                                    reward = Y[batch_1],
+                                    arm = A[batch_1],
+                                    sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
+                                    batch_id = rep(1, length(batch_1))
+                                  ))["point", ]
+                              },
+                              AIPW = {
+                                if(all(c(is.null(reg_type), is.null(hyperparams)))){
+                                  stop("Both reg_type and hyperparams should be specified when AIPW is considered!")
+                                }
+                                # compute the IPW estimate
+                                AIPW(
+                                  data = list(
+                                    reward = Y[batch_1],
+                                    arm = A[batch_1],
+                                    covariate = X[batch_1, ],
+                                    sampling_prob = sapply(batch_1, function(x) initial_prob[A[x]]),
+                                    batch_id = rep(1, length(batch_1))
+                                  ), hyperparams = hyperparams, reg_type = reg_type)
+                              }
+  )
+  
+  # pass the result to sampling algorithm and get an estimate for the sampling probability
+  second_stage_data <- sampling_function(eps = eps, reward = batch_1_estimate,
+                                         n = n_2, dist_fam = dist_fam,
+                                         sample_size = n_1,
+                                         dist_params = dist_params, type = type)
+  prob_estimate <- second_stage_data$prob_estimate
+  
+  # second batch
+  A[batch_2] <- second_stage_data$random_index
+  Y[batch_2] <- second_stage_data$random_sample + sapply(batch_2,
+                                                         function(x){
+                                                           linear_pred[x, A[x]]
+                                                         })
 
   # store the probability vector
   sampling_prob <- sapply(1:n, function(x){
