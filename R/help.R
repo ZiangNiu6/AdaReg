@@ -594,8 +594,9 @@ plugin_bootstrap <- function(mean_estimate,
     # compute core statistics
     R_1 <- sqrt(H_1 / V_1)
     R_2 <- sqrt(H_2 / V_2)
-    M_1 <- 0.5 * (H_1^{m} / (0.5 * sum(H_1^{m})))^2
-    M_2 <- 0.5 * (H_2^{m} / (0.5 * sum(H_2^{m})))^2
+    denominator_shared <- c(H_1[1]^{m} + H_2[1]^{m}, H_1[2]^{m} + H_2[2]^{m})
+    M_1 <- 0.5 * (H_1^{m} / (0.5 * denominator_shared))^2
+    M_2 <- 0.5 * (H_2^{m} / (0.5 * denominator_shared))^2
 
     # compute the weighting depending on the normalization or not
     switch (normalization,
