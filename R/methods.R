@@ -436,3 +436,66 @@ BDM_test <- function(data){
   ))
 }
 
+#' Concentration-based inference test
+#'
+#' Non-asymptotic test using self-normalized martingale concentration bounds
+#' from Abbasi-Yadkori, Pal, and Szepesvari (2011). P-values are obtained by
+#' inverting the simultaneous armwise confidence intervals (paper Eq. 14).
+#' Valid under adaptive sampling without requiring bootstrap or variance estimation.
+#'
+#' @param data Data to be analyzed
+#'
+#' @return left, right and both sided p-values
+#' @export
+
+concentration_test <- function(data){
+
+  dat <- data$data_to_analyze
+  A <- dat$arm
+  Y <- dat$reward
+  K <- 2
+
+  N1 <- sum(A == 1)
+  N2 <- sum(A == 2)
+  Xbar1 <- mean(Y[A == 1])
+  Xbar2 <- mean(Y[A == 2])
+  Dhat <- Xbar1 - Xbar2
+
+  # armwise confidence radius from Eq. (14) with K arms
+  radius <- function(N, alpha) {
+    sqrt(((1 + N) / N^2) * (1 + 2 * log(K * sqrt(1 + N) / alpha)))
+  }
+
+  # total radius for the gap
+  R <- function(alpha) {
+    radius(N1, alpha) + radius(N2, alpha)
+  }
+
+  # invert R(alpha) to find p-value via bisection
+  invert_alpha <- function(target) {
+    if (target <= 0) return(1)
+    if (target <= R(1 - 1e-12)) return(1)
+    lo <- 1e-12
+    hi <- 1 - 1e-12
+    for (i in 1:60) {
+      mid <- (lo + hi) / 2
+      if (target > R(mid)) {
+        hi <- mid
+      } else {
+        lo <- mid
+      }
+    }
+    return(hi)
+  }
+
+  p_value_right <- invert_alpha(Dhat)
+  p_value_left <- invert_alpha(-Dhat)
+  p_value_both <- invert_alpha(abs(Dhat))
+
+  return(list(
+    left = p_value_left,
+    right = p_value_right,
+    both = p_value_both
+  ))
+}
+
