@@ -13,4 +13,6 @@ Imports:
     dplyr,
     glmnet,
     katlabutils,
-    mixtools
+    mixtools,
+    Rcpp
+LinkingTo: Rcpp

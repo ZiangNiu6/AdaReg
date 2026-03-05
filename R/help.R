@@ -547,107 +547,17 @@ plugin_bootstrap <- function(mean_estimate,
                              weighting = "aw", type = "eps_greedy",
                              weight_vec = c(1, -1)){
 
-  # specify the expectation and variance
-  EY_vec <- mean_estimate
-  VY_vec <- variance_estimate
-  EY2_vec <- EY_vec^2 + VY_vec
-  num_arm <- 2
-
-  # append two hyperparameter together
-  testing_method <- paste(normalization, weighting, sep = "_")
-
-  # specify the first stage sampling probability
-  fs_prob <- c(fs_p, 1 - fs_p)
-
-  # specify the parameter in the limiting distribution from the first stage
-  H_1 <- fs_prob
-  V_1 <- EY2_vec - H_1*EY_vec^2
-  cov_1 <- -sqrt(prod(H_1) / prod(V_1)) * prod(EY_vec)
-  covariance_1 <- matrix(c(1, cov_1, cov_1, 1), num_arm, num_arm)
-
-  # generate B sample from the limiting distribution for each h
-
-  ## generate sample from first batch
-  A_1 <- fast_generate_mvn(mean = rep(0, num_arm),
-                           covariance = covariance_1,
-                           num_samples = B)
-
-  # generate sample from the limiting distribution
-  final_sample <- sapply(1:B, function(y){
-    H_2 <- limiting_sampling_function(A_1[y, ], V_1, h = h, H_1, eps = eps, type = type, weight_vec = weight_vec)
-    V_2 <- EY2_vec - H_2*EY_vec^2
-    cov_2 <- -sqrt(prod(H_2) / prod(V_2)) * prod(EY_vec)
-    covariance_2 <- matrix(c(1, cov_2, cov_2, 1), num_arm, num_arm)
-
-    # generate second stage sample
-    A_2 <- fast_generate_mvn(mean = rep(0, num_arm),
-                             covariance = covariance_2,
-                             num_samples = 1)
-
-    # extract which weighing method is used
-    m <- case_when(
-      weighting == "aw" ~ 0.5,
-      weighting == "cw" ~ 0,
-      TRUE ~ 1
-    )
-
-    # compute core statistics
-    R_1 <- sqrt(H_1 / V_1)
-    R_2 <- sqrt(H_2 / V_2)
-    denominator_shared <- c(H_1[1]^{m} + H_2[1]^{m}, H_1[2]^{m} + H_2[2]^{m})
-    M_1 <- 0.5 * (H_1^{m} / (0.5 * denominator_shared))^2
-    M_2 <- 0.5 * (H_2^{m} / (0.5 * denominator_shared))^2
-
-    # compute the weighting depending on the normalization or not
-    switch (normalization,
-      normalized = {
-        denominator <- sqrt(sum(M_1 / R_1^2 + M_2 / R_2^2))
-        w_1 <- sqrt(M_1 / R_1^2) / denominator
-        w_2 <- sqrt(M_2 / R_2^2) / denominator
-      },
-      unnormalized = {
-        w_1 <- sqrt(M_1 / R_1^2)
-        w_2 <- sqrt(M_2 / R_2^2)
-      }
-    )
-
-
-    # # compute the denominator in the weighting vector
-    # switch (testing_method,
-    #   normalized_aw = {
-    #     R_1 <- 1 / (sqrt(H_1[1]) + sqrt(H_2[1]))
-    #     R_2 <- 1 / (sqrt(H_1[2]) + sqrt(H_2[2]))
-    #     denominator_total <-  sqrt(R_1^2 * (V_1[1] + V_2[1]) + R_2^2 * (V_2[2] + V_1[2]))
-    #     denominator_1 <- denominator_2 <- c(denominator_total / R_1, denominator_total / R_2)
-    #   },
-    #   normalized_cw = {
-    #     denominator_1 <- sqrt(sum(V_1 / H_1) + sum(V_2 / H_2)) * sqrt(H_1)
-    #     denominator_2 <- sqrt(sum(V_1 / H_1) + sum(V_2 / H_2)) * sqrt(H_2)
-    #   },
-    #   unnormalized_aw = {
-    #     R_1 <- (sqrt(H_1[1]) + sqrt(H_2[1]))
-    #     R_2 <- (sqrt(H_1[2]) + sqrt(H_2[2]))
-    #     denominator_1 <- denominator_2 <- c(R_1, R_2)
-    #   },
-    #   unnormalized_cw = {
-    #     denominator_1 <- sqrt(H_1)
-    #     denominator_2 <- sqrt(H_2)
-    #   }
-    # )
-    #
-    # # generate the weight w_1 and w_2
-    # w_1 <- sqrt(V_1) / denominator_1
-    # w_2 <- sqrt(V_2) / denominator_2
-
-    # define the diff_operator
-    diff_operator <- c(1, -1)
-
-    # generate final sample
-    return(sum(A_1[y, ]*w_1*diff_operator) + sum(A_2*w_2*diff_operator))
-  })
-
-  # return final sample
-  return(final_sample)
+  plugin_bootstrap_cpp(
+    mean_estimate = mean_estimate,
+    variance_estimate = variance_estimate,
+    eps = eps,
+    fs_p = fs_p,
+    B = as.integer(B),
+    normalization = normalization,
+    h = h,
+    weighting = weighting,
+    type = type
+  )
 }
 
 
@@ -822,68 +732,16 @@ AIPW <- function(data, hyperparams, reg_type = "lasso", return_reg = TRUE, first
 #' @export
 IPW <- function(data, one_batch = FALSE, batch_output = 1){
 
-  # extract the data list
-  Y <- as.vector(data$reward)
-  A <- as.vector(data$arm)
-  n <- length(A)
-  sampling_prob <- data$sampling_prob
-  batch_id <- data$batch_id
-  batch_list <- unique(batch_id)
-  arm_list <- sort(unique(A))
+  res <- ipw_cpp(
+    as.numeric(data$reward),
+    as.integer(data$arm),
+    as.numeric(data$sampling_prob),
+    as.integer(data$batch_id),
+    one_batch = one_batch,
+    batch_output = as.integer(batch_output)
+  )
 
-  # construct prob_tibble
-  prob_tibble <- as_tibble(cbind(A, batch_id, sampling_prob)) |>
-    dplyr::distinct()
-
-  # construct an empty matrix
-  output <- matrix(data = NA,
-                   nrow = length(arm_list),
-                   ncol = 2,
-                   dimnames = list(estimate = c("point", "variance"),
-                                   arm = arm_list))
-
-  # compute the IPW estimator
-  IPW_list <- sapply(batch_list, function(x){
-    sapply(arm_list,
-           function(y){
-             prob_to_use <- prob_tibble |>
-               filter(batch_id == x & A == y) |>
-               dplyr::select(sampling_prob) |>
-               pull()
-             sum(Y[which(A == y & batch_id == x)]) / (n * prob_to_use)
-           })
-  })
-
-  # depend on if only first batch is used
-  if(one_batch){
-
-    # compute the corresponding IPW with batch_output
-    output["point", ] <- 2 * IPW_list[, batch_output]
-    output["variance", ] <- sapply(arm_list,
-                                   function(y){
-                                     prob_to_use <- data$sampling_prob[which((data$arm == y) & (data$batch_id == batch_output))]
-                                     imputed_Y <- numeric(n / 2)
-                                     imputed_Y[which((A == y) & (batch_id == batch_output)) - (n/2)*(batch_output - 1)] <- Y[which((A == y) & (batch_id == batch_output))] / prob_to_use
-                                     mean((imputed_Y  - output["point", y])^2)
-                                   })
-
-    # return the value
-    return(output)
-  }else{
-
-    # store the point estimate
-    output["point", ] <- apply(IPW_list, 1, sum)
-
-    # compute the variance estimator
-    output["variance", ] <- sapply(arm_list,
-                                   function(y){
-                                     prob_to_use <- data$sampling_prob[which(data$arm == y)]
-                                     imputed_Y <- numeric(n)
-                                     imputed_Y[which(A == y)] <- Y[which(A == y)] / prob_to_use
-                                     sum((imputed_Y  - output["point", y])^2) / n^2
-                                   })
-  }
-  return(output)
+  return(res$output)
 }
 
 #' Tnis is a function building up the point and variance estimates wight weighting strategy
@@ -1018,58 +876,13 @@ weighted_AIPW <- function(data, hyperparams, reg_type = "lasso"){
 #' @return An output matrix with point and variance estimate for each arm
 #' @export
 weighted_IPW <- function(data, weighting = "aw") {
-  # Extract the reward, arm, sampling probability, and batch id
-  Y <- data$reward
-  A <- data$arm
-  sampling_prob <- data$sampling_prob
-  batch_id <- data$batch_id
-  arm_list <- sort(unique(A))
-
-  # Construct prob_tibble using distinct values
-  prob_tibble <- as_tibble(cbind(A, batch_id, sampling_prob)) %>%
-    dplyr::distinct()
-
-  # Construct the sampling probability matrix using vectorized operations
-  combined_data <- data.frame(A = A, sampling_prob = sampling_prob)
-  sampling_prob_mat <- combined_data |>
-    dplyr::mutate(arm_1 = if_else(A == 1, sampling_prob, 1 - sampling_prob),
-                  arm_2 = if_else(A == 2, sampling_prob, 1 - sampling_prob)) |>
-    dplyr::select(arm_1, arm_2)
-
-  # Construct augmented term using vectorized operations
-  augmented_term <- matrix(0, nrow = length(A), ncol = length(arm_list))
-  for (i in seq_along(arm_list)) {
-    augmented_term[, i] <- ifelse(A == arm_list[i], Y / sampling_prob_mat[, i], 0)
-  }
-
-  # Constant allocation
-  if(weighting == "aw"){
-    weight_constant <- sqrt(sampling_prob_mat / length(batch_id))
-  }else{
-    weight_constant <- sampling_prob_mat / length(batch_id)
-  }
-
-  # Compute the sum of weights
-  sum_weight <- colSums(weight_constant)
-
-  # Construct the point estimate
-  weighted_IPW <- colSums(augmented_term * weight_constant) / sum_weight
-
-  # Compute the difference of the matrix
-  diff_mat <- augmented_term - matrix(weighted_IPW, nrow = length(A), ncol = length(arm_list), byrow = TRUE)
-
-  # Construct variance estimator
-  variance_estimate <- colSums((diff_mat * weight_constant) ^ 2) / sum_weight ^ 2
-
-  # Construct an empty matrix for the final output
-  output <- matrix(NA, nrow = 2, ncol = length(arm_list), dimnames = list(c("point", "variance"), arm_list))
-
-  # Impute the final output
-  output["point", ] <- weighted_IPW
-  output["variance", ] <- variance_estimate
-
-  # Return the final confidence interval
-  return(output)
+  weighted_ipw_cpp(
+    as.numeric(data$reward),
+    as.integer(data$arm),
+    as.numeric(data$sampling_prob),
+    as.integer(data$batch_id),
+    weighting = weighting
+  )
 }
 
 #' A function providing confidence interval for weighted_AIPW
