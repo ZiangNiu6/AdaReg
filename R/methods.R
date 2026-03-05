@@ -393,7 +393,73 @@ NDM_test <- function(data){
   p_value_left <- (length(which(candidate_sample <= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_right <- (length(which(candidate_sample >= (point_estimate / sd_estimate))) + 1) / (length(candidate_sample) + 1)
   p_value_both <- 2 * min(p_value_left, p_value_right)
-  
+
+  # output
+  return(list(
+    left = p_value_left,
+    right = p_value_right,
+    both = p_value_both
+  ))
+}
+
+#' Batchwise Difference-in-Means (BDM) test
+#'
+#' Normalizes the difference-in-means per batch and aggregates across batches.
+#' Under the null, the test statistic is asymptotically standard normal.
+#' See Hirano and Porter (2025), Appendix D.
+#'
+#' @param data Data to be analyzed
+#'
+#' @return left, right and both sided p-values
+#' @export
+
+BDM_test <- function(data){
+
+  # extract data
+  data_to_analyze <- data$data_to_analyze
+  Y <- data_to_analyze$reward
+  A <- data_to_analyze$arm
+  batch_id <- data_to_analyze$batch_id
+  batch_list <- sort(unique(batch_id))
+  B <- length(batch_list)
+
+  # compute per-batch statistics and aggregate
+  bdm_sum <- 0
+  for(b in batch_list){
+    idx <- which(batch_id == b)
+    idx_1 <- idx[A[idx] == 1]
+    idx_2 <- idx[A[idx] == 2]
+    N_b1 <- length(idx_1)
+    N_b2 <- length(idx_2)
+
+    # skip batch if either arm has fewer than 2 observations
+    if(N_b1 < 2 || N_b2 < 2) next
+
+    # batch-level means
+    beta_b1 <- mean(Y[idx_1])
+    beta_b2 <- mean(Y[idx_2])
+
+    # batch-level difference in means
+    S_b <- beta_b1 - beta_b2
+
+    # batch-level variances
+    sigma2_b1 <- sum((Y[idx_1] - beta_b1)^2) / N_b1
+    sigma2_b2 <- sum((Y[idx_2] - beta_b2)^2) / N_b2
+
+    # batch-level weight
+    se_b <- sqrt(sigma2_b1 / N_b1 + sigma2_b2 / N_b2)
+    if(se_b <= 0) next
+
+    omega_b <- 1 / (sqrt(B) * se_b)
+
+    bdm_sum <- bdm_sum + omega_b * S_b
+  }
+
+  # compute p-values using standard normal
+  p_value_left <- pnorm(bdm_sum)
+  p_value_right <- pnorm(bdm_sum, lower.tail = FALSE)
+  p_value_both <- 2 * min(p_value_left, p_value_right)
+
   # output
   return(list(
     left = p_value_left,
