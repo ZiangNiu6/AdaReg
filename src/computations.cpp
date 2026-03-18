@@ -99,34 +99,50 @@ List ipw_cpp(NumericVector Y, IntegerVector A,
   NumericVector variance(n_arms);
 
   if (one_batch) {
-    // Find batch_output index
-    int bo_idx = -1;
-    for (int bi = 0; bi < n_batches; bi++) {
-      if (batch_list[bi] == batch_output) { bo_idx = bi; break; }
+    // Count observations in the target batch
+    int n_batch = 0;
+    for (int i = 0; i < n; i++) {
+      if (batch_id[i] == batch_output) n_batch++;
     }
 
+    // Compute point estimate using batch size (not total n)
     for (int ai = 0; ai < n_arms; ai++) {
-      point[ai] = 2.0 * IPW_list(ai, bo_idx);
+      int a = arm_list[ai];
+      int bo_idx = -1;
+      for (int bi = 0; bi < n_batches; bi++) {
+        if (batch_list[bi] == batch_output) { bo_idx = bi; break; }
+      }
+      double prob = prob_map[std::make_pair(batch_output, a)];
+      double sum_y = 0.0;
+      for (int i = 0; i < n; i++) {
+        if (A[i] == a && batch_id[i] == batch_output) {
+          sum_y += Y[i];
+        }
+      }
+      point[ai] = sum_y / (n_batch * prob);
     }
 
-    int n_half = n / 2;
+    // Variance estimate
     for (int ai = 0; ai < n_arms; ai++) {
       int a = arm_list[ai];
       // Construct imputed_Y for this batch
-      NumericVector imputed_Y(n_half, 0.0);
-      int offset = n_half * (batch_output - 1);
+      NumericVector imputed_Y(n_batch, 0.0);
+      int j = 0;
       for (int i = 0; i < n; i++) {
-        if (A[i] == a && batch_id[i] == batch_output) {
-          double prob = sampling_prob[i];
-          imputed_Y[i - offset] = Y[i] / prob;
+        if (batch_id[i] == batch_output) {
+          if (A[i] == a) {
+            double prob = sampling_prob[i];
+            imputed_Y[j] = Y[i] / prob;
+          }
+          j++;
         }
       }
       double ss = 0.0;
-      for (int j = 0; j < n_half; j++) {
-        double d = imputed_Y[j] - point[ai];
+      for (int j2 = 0; j2 < n_batch; j2++) {
+        double d = imputed_Y[j2] - point[ai];
         ss += d * d;
       }
-      variance[ai] = ss / n_half;
+      variance[ai] = ss / n_batch;
     }
   } else {
     // Sum across batches
